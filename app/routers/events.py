@@ -6,6 +6,7 @@ import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -51,7 +52,14 @@ def submit_event(payload: EventCreate, response: Response, db: Session = Depends
         metadata_=payload.metadata,
     )
     db.add(event)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another concurrent request inserted the same eventId first.
+        db.rollback()
+        existing = db.get(Event, payload.eventId)
+        response.status_code = status.HTTP_200_OK
+        return _to_response(existing)
     db.refresh(event)
     return _to_response(event)
 
