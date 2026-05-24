@@ -31,3 +31,11 @@ class BalanceResponse(BaseModel):
     accountId: str
     balance: Decimal
     currency: str
+
+
+class PaginatedEventsResponse(BaseModel):
+    data: list[EventResponse]
+    page: int
+    pageSize: int
+    total: int
+    totalPages: int

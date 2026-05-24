@@ -2,13 +2,15 @@ from datetime import timezone
 from decimal import Decimal
 from typing import Optional
 
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Event
-from ..schemas import EventCreate, EventResponse
+from ..schemas import EventCreate, EventResponse, PaginatedEventsResponse
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -62,15 +64,32 @@ def get_event(event_id: str, db: Session = Depends(get_db)):
     return _to_response(event)
 
 
-@router.get("", response_model=list[EventResponse])
-def list_events(account: str = Query(..., description="Account ID to filter by"), db: Session = Depends(get_db)):
+@router.get("", response_model=PaginatedEventsResponse)
+def list_events(
+    account: str = Query(..., description="Account ID to filter by"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(20, ge=1, le=100, alias="pageSize", description="Items per page (max 100)"),
+    db: Session = Depends(get_db),
+):
+    base_query = select(Event).where(Event.account_id == account)
+
+    total = db.execute(select(func.count()).select_from(base_query.subquery())).scalar_one()
+
     events = (
         db.execute(
-            select(Event)
-            .where(Event.account_id == account)
+            base_query
             .order_by(Event.event_timestamp.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
         .scalars()
         .all()
     )
-    return [_to_response(e) for e in events]
+
+    return PaginatedEventsResponse(
+        data=[_to_response(e) for e in events],
+        page=page,
+        pageSize=page_size,
+        total=total,
+        totalPages=math.ceil(total / page_size) if total > 0 else 0,
+    )
